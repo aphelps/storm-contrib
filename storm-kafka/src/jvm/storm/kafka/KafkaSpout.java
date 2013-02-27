@@ -15,7 +15,6 @@ import kafka.message.Message;
 import storm.kafka.PartitionManager.KafkaMessageId;
 import storm.kafka.trident.KafkaUtils;
 
-// TODO: need to add blacklisting
 // TODO: need to make a best effort to not re-emit messages if don't have to
 public class KafkaSpout extends BaseRichSpout {
     public static class MessageAndRealOffset {
@@ -55,35 +54,38 @@ public class KafkaSpout extends BaseRichSpout {
     public void open(Map conf, TopologyContext context, final SpoutOutputCollector collector) {
         _collector = collector;
 
-	Map stateConf = new HashMap(conf);
+        Map stateConf = new HashMap(conf);
         List<String> zkServers = _spoutConfig.zkServers;
-        if(zkServers==null) zkServers = (List<String>) conf.get(Config.STORM_ZOOKEEPER_SERVERS);
+        if (zkServers == null) zkServers = (List<String>) conf.get(Config.STORM_ZOOKEEPER_SERVERS);
         Integer zkPort = _spoutConfig.zkPort;
-        if(zkPort==null) zkPort = ((Number) conf.get(Config.STORM_ZOOKEEPER_PORT)).intValue();
+        if (zkPort == null) zkPort = ((Number) conf.get(Config.STORM_ZOOKEEPER_PORT)).intValue();
         stateConf.put(Config.TRANSACTIONAL_ZOOKEEPER_SERVERS, zkServers);
         stateConf.put(Config.TRANSACTIONAL_ZOOKEEPER_PORT, zkPort);
         stateConf.put(Config.TRANSACTIONAL_ZOOKEEPER_ROOT, _spoutConfig.zkRoot);
-	_state = new ZkState(stateConf);
+        _state = new ZkState(stateConf);
 
         _connections = new DynamicPartitionConnections(_spoutConfig);
 
         // using TransactionalState like this is a hack
         int totalTasks = context.getComponentTasks(context.getThisComponentId()).size();
-        if(_spoutConfig.hosts instanceof KafkaConfig.StaticHosts) {
+        if (_spoutConfig.hosts instanceof KafkaConfig.StaticHosts) {
             _coordinator = new StaticCoordinator(_connections, conf, _spoutConfig, _state, context.getThisTaskIndex(), totalTasks, _uuid);
         } else {
             _coordinator = new ZkCoordinator(_connections, conf, _spoutConfig, _state, context.getThisTaskIndex(), totalTasks, _uuid);
         }
 
         context.registerMetric("kafkaOffset", new IMetric() {
-            KafkaUtils.KafkaOffsetMetric _kafkaOffsetMetric = new KafkaUtils.KafkaOffsetMetric(_spoutConfig.topic, _connections);
+            KafkaUtils.KafkaOffsetMetric _kafkaOffsetMetric = new KafkaUtils.KafkaOffsetMetric(_spoutConfig.topic, _connections, _spoutConfig.clientName);
+
             @Override
             public Object getValueAndReset() {
                 List<PartitionManager> pms = _coordinator.getMyManagedPartitions();
                 Set<GlobalPartitionId> latestPartitions = new HashSet();
-                for(PartitionManager pm : pms) { latestPartitions.add(pm.getPartition()); }
+                for (PartitionManager pm : pms) {
+                    latestPartitions.add(pm.getPartition());
+                }
                 _kafkaOffsetMetric.refreshPartitions(latestPartitions);
-                for(PartitionManager pm : pms) {
+                for (PartitionManager pm : pms) {
                     _kafkaOffsetMetric.setLatestEmittedOffset(pm.getPartition(), pm.lastCompletedOffset());
                 }
                 return _kafkaOffsetMetric.getValueAndReset();
@@ -93,27 +95,27 @@ public class KafkaSpout extends BaseRichSpout {
 
     @Override
     public void close() {
-	_state.close();
+        _state.close();
     }
 
     @Override
     public void nextTuple() {
         List<PartitionManager> managers = _coordinator.getMyManagedPartitions();
-        for(int i=0; i<managers.size(); i++) {
-            
+        for (int i = 0; i < managers.size(); i++) {
+
             // in case the number of managers decreased
             _currPartitionIndex = _currPartitionIndex % managers.size();
             EmitState state = managers.get(_currPartitionIndex).next(_collector);
-            if(state!=EmitState.EMITTED_MORE_LEFT) {
+            if (state != EmitState.EMITTED_MORE_LEFT) {
                 _currPartitionIndex = (_currPartitionIndex + 1) % managers.size();
             }
-            if(state!=EmitState.NO_EMITTED) {
+            if (state != EmitState.NO_EMITTED) {
                 break;
             }
         }
 
         long now = System.currentTimeMillis();
-        if((now - _lastUpdateMs) > _spoutConfig.stateUpdateIntervalMs) {
+        if ((now - _lastUpdateMs) > _spoutConfig.stateUpdateIntervalMs) {
             commit();
         }
     }
@@ -122,18 +124,18 @@ public class KafkaSpout extends BaseRichSpout {
     public void ack(Object msgId) {
         KafkaMessageId id = (KafkaMessageId) msgId;
         PartitionManager m = _coordinator.getManager(id.partition);
-        if(m!=null) {
+        if (m != null) {
             m.ack(id.offset);
-        }                
+        }
     }
 
     @Override
     public void fail(Object msgId) {
         KafkaMessageId id = (KafkaMessageId) msgId;
         PartitionManager m = _coordinator.getManager(id.partition);
-        if(m!=null) {
+        if (m != null) {
             m.fail(id.offset);
-        } 
+        }
     }
 
     @Override
@@ -148,7 +150,7 @@ public class KafkaSpout extends BaseRichSpout {
 
     private void commit() {
         _lastUpdateMs = System.currentTimeMillis();
-        for(PartitionManager manager: _coordinator.getMyManagedPartitions()) {
+        for (PartitionManager manager : _coordinator.getMyManagedPartitions()) {
             manager.commit();
         }
     }

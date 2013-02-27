@@ -11,8 +11,8 @@ public class SpoutConfig extends KafkaConfig implements Serializable {
     public String id = null;
     public long stateUpdateIntervalMs = 2000;
 
-    public SpoutConfig(BrokerHosts hosts, String topic, String zkRoot, String id) {
-        super(hosts, topic);
+    public SpoutConfig(BrokerHosts hosts, String topic, String zkRoot, String id, String clientName) {
+        super(hosts, topic, clientName);
         this.zkRoot = zkRoot;
         this.id = id;
     }

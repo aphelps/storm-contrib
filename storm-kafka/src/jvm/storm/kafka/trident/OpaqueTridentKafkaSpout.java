@@ -13,6 +13,7 @@ import java.util.*;
 import kafka.javaapi.consumer.SimpleConsumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import storm.kafka.BrokerData;
 import storm.kafka.DynamicPartitionConnections;
 import storm.kafka.GlobalPartitionId;
 import storm.trident.operation.TridentCollector;
@@ -20,7 +21,7 @@ import storm.trident.spout.IOpaquePartitionedTridentSpout;
 import storm.trident.topology.TransactionAttempt;
 
 
-public class OpaqueTridentKafkaSpout implements IOpaquePartitionedTridentSpout<Map<String, List>, GlobalPartitionId, Map> {
+public class OpaqueTridentKafkaSpout implements IOpaquePartitionedTridentSpout<Map<String, BrokerData>, GlobalPartitionId, Map> {
     public static final Logger LOG = LoggerFactory.getLogger(OpaqueTridentKafkaSpout.class);
     
     TridentKafkaConfig _config;
@@ -31,7 +32,7 @@ public class OpaqueTridentKafkaSpout implements IOpaquePartitionedTridentSpout<M
     }
     
     @Override
-    public IOpaquePartitionedTridentSpout.Emitter<Map<String, List>, GlobalPartitionId, Map> getEmitter(Map conf, TopologyContext context) {
+    public IOpaquePartitionedTridentSpout.Emitter<Map<String, BrokerData>, GlobalPartitionId, Map> getEmitter(Map conf, TopologyContext context) {
         return new Emitter(conf, context);
     }
     
@@ -73,7 +74,7 @@ public class OpaqueTridentKafkaSpout implements IOpaquePartitionedTridentSpout<M
         }
     }
     
-    class Emitter implements IOpaquePartitionedTridentSpout.Emitter<Map<String, List>, GlobalPartitionId, Map> {
+    class Emitter implements IOpaquePartitionedTridentSpout.Emitter<Map<String, BrokerData>, GlobalPartitionId, Map> {
         DynamicPartitionConnections _connections;
         String _topologyName;
         KafkaUtils.KafkaOffsetMetric _kafkaOffsetMetric;
@@ -83,7 +84,7 @@ public class OpaqueTridentKafkaSpout implements IOpaquePartitionedTridentSpout<M
         public Emitter(Map conf, TopologyContext context) {
             _connections = new DynamicPartitionConnections(_config);
             _topologyName = (String) conf.get(Config.TOPOLOGY_NAME);
-            _kafkaOffsetMetric = new KafkaUtils.KafkaOffsetMetric(_config.topic, _connections);
+            _kafkaOffsetMetric = new KafkaUtils.KafkaOffsetMetric(_config.topic, _connections,_config.clientName);
             context.registerMetric("kafkaOffset", _kafkaOffsetMetric, 60);
             _kafkaMeanFetchLatencyMetric = context.registerMetric("kafkaFetchAvg", new MeanReducer(), 60);
             _kafkaMaxFetchLatencyMetric = context.registerMetric("kafkaFetchMax", new MaxMetric(), 60);
@@ -94,7 +95,7 @@ public class OpaqueTridentKafkaSpout implements IOpaquePartitionedTridentSpout<M
             try {
                 SimpleConsumer consumer = _connections.register(partition);
                 Map ret = KafkaUtils.emitPartitionBatchNew(_config, consumer, partition, collector, lastMeta, _topologyInstanceId, _topologyName, _kafkaMeanFetchLatencyMetric, _kafkaMaxFetchLatencyMetric);
-                _kafkaOffsetMetric.setLatestEmittedOffset(partition, (Long)ret.get("offset"));
+                _kafkaOffsetMetric.setLatestEmittedOffset(partition, (Long)ret.get(KafkaUtils.META_START_OFFSET));
                 return ret;
             } catch(FailedFetchException e) {
                 LOG.warn("Failed to fetch from partition " + partition);
@@ -102,12 +103,12 @@ public class OpaqueTridentKafkaSpout implements IOpaquePartitionedTridentSpout<M
                     return null;
                 } else {
                     Map ret = new HashMap();
-                    ret.put("offset", lastMeta.get("nextOffset"));
-                    ret.put("nextOffset", lastMeta.get("nextOffset"));
-                    ret.put("partition", partition.partition);
-                    ret.put("broker", ImmutableMap.of("host", partition.host.host, "port", partition.host.port));
-                    ret.put("topic", _config.topic);
-                    ret.put("topology", ImmutableMap.of("name", _topologyName, "id", _topologyInstanceId));                    
+                    ret.put(KafkaUtils.META_START_OFFSET, lastMeta.get(KafkaUtils.META_END_OFFSET));
+                    ret.put(KafkaUtils.META_END_OFFSET, lastMeta.get(KafkaUtils.META_END_OFFSET));
+                    ret.put(KafkaUtils.META_PARTITION, partition.partition);
+                    ret.put(KafkaUtils.META_BROKER, ImmutableMap.of(KafkaUtils.META_BROKER_HOST, partition.host.host, KafkaUtils.META_BROKER_PORT, partition.host.port));
+                    ret.put(KafkaUtils.META_TOPIC, _config.topic);
+                    ret.put(KafkaUtils.META_TOPOLOGY, ImmutableMap.of(KafkaUtils.META_TOPOLOGY_NAME, _topologyName, KafkaUtils.META_TOPOLOGY_ID, _topologyInstanceId));
                     
                     return ret;
                 }
@@ -120,7 +121,7 @@ public class OpaqueTridentKafkaSpout implements IOpaquePartitionedTridentSpout<M
         }
 
         @Override
-        public List<GlobalPartitionId> getOrderedPartitions(Map<String, List> partitions) {
+        public List<GlobalPartitionId> getOrderedPartitions(Map<String, BrokerData> partitions) {
             return KafkaUtils.getOrderedPartitions(partitions);
         }
 

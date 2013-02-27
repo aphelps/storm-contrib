@@ -52,12 +52,14 @@ public class KafkaConfig implements Serializable {
     public int bufferSizeBytes = 1024*1024;
     public MultiScheme scheme = new RawMultiScheme();
     public String topic;
-    public long startOffsetTime = -2;
+    public long startOffsetTime = kafka.api.OffsetRequest.EarliestTime();
     public boolean forceFromStart = false;
+    public String clientName;
 
-    public KafkaConfig(BrokerHosts hosts, String topic) {
+    public KafkaConfig(BrokerHosts hosts, String topic, String clientName) {
         this.hosts = hosts;
         this.topic = topic;
+        this.clientName = clientName;
     }
 
 

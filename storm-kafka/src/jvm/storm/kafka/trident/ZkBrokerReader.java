@@ -1,14 +1,15 @@
 package storm.kafka.trident;
 
-import java.util.List;
 import java.util.Map;
+
+import storm.kafka.BrokerData;
 import storm.kafka.DynamicBrokersReader;
 import storm.kafka.KafkaConfig.ZkHosts;
 
 
 public class ZkBrokerReader implements IBrokerReader {
 
-    Map<String, List> cachedBrokers;
+    Map<String, BrokerData> cachedBrokers;
     DynamicBrokersReader reader;
     long lastRefreshTimeMs;
     long refreshMillis;
@@ -21,7 +22,7 @@ public class ZkBrokerReader implements IBrokerReader {
     }
     
     @Override
-    public Map<String, List> getCurrentBrokers() {
+    public Map<String, BrokerData> getCurrentBrokers() {
         long currTime = System.currentTimeMillis();
         if(currTime > lastRefreshTimeMs + refreshMillis) {
             cachedBrokers = reader.getBrokerInfo();

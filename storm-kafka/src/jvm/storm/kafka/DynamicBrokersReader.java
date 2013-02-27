@@ -5,19 +5,23 @@ import backtype.storm.utils.Utils;
 import com.netflix.curator.framework.CuratorFramework;
 import com.netflix.curator.framework.CuratorFrameworkFactory;
 import com.netflix.curator.retry.RetryNTimes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import storm.kafka.trident.KafkaUtils;
+
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class DynamicBrokersReader {
-    
+
+    public static final Logger LOG = LoggerFactory.getLogger(DynamicBrokersReader.class);
+
     CuratorFramework _curator;
     String _zkPath;
     String _topic;
-    
+
     public DynamicBrokersReader(Map conf, String zkStr, String zkPath, String topic) {
         try {
             _zkPath = zkPath;
@@ -27,69 +31,53 @@ public class DynamicBrokersReader {
                     Utils.getInt(conf.get(Config.STORM_ZOOKEEPER_SESSION_TIMEOUT)),
                     15000,
                     new RetryNTimes(Utils.getInt(conf.get(Config.STORM_ZOOKEEPER_RETRY_TIMES)),
-                    Utils.getInt(conf.get(Config.STORM_ZOOKEEPER_RETRY_INTERVAL))));
+                            Utils.getInt(conf.get(Config.STORM_ZOOKEEPER_RETRY_INTERVAL))));
             _curator.start();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
     }
-    
-    /**
-     * Map of host to List of port and number of partitions.
-     * 
-     * {"host1.mycompany.com" -> [9092, 5]}
-     */
-    public Map<String, List> getBrokerInfo() {     
-        Map<String, List> ret = new HashMap();
-        try {
-            String topicBrokersPath = _zkPath + "/topics/" + _topic;
-            String brokerInfoPath = _zkPath + "/ids";
-            List<String> children = _curator.getChildren().forPath(topicBrokersPath);
 
+    public Map<String, BrokerData> getBrokerInfo() {
+        Map<String, BrokerData> ret = new HashMap<String, BrokerData>();
+        try {
+
+            // get the list of brokers in Zookeeper, only to find one we can reach using Kafka's APIs
+            //
+            String brokerInfoPath = _zkPath + "/ids";
+            List<String> children = _curator.getChildren().forPath(brokerInfoPath);
             for(String c: children) {
                 try {
-                    byte[] numPartitionsData = _curator.getData().forPath(topicBrokersPath + "/" + c);
-                    byte[] hostPortData = _curator.getData().forPath(brokerInfoPath + "/" + c);
+                    byte[] brokers = _curator.getData().forPath(brokerInfoPath + "/" + c);
 
+                    String[] hostString = new String(brokers, "UTF-8").split(":");
+                    String host = hostString[0];
+                    int port = Integer.parseInt(hostString[1]);
 
+                    ret = KafkaUtils.findMasters(host, port, _topic);
 
-                    HostPort hp = getBrokerHost(hostPortData);
-                    int numPartitions = getNumPartitions(numPartitionsData);
-                    List info = new ArrayList();
-                    info.add((long)hp.port);
-                    info.add((long)numPartitions);
-                    ret.put(hp.host, info);
-                    
+                    if (ret != null) break;
+
                 } catch(org.apache.zookeeper.KeeperException.NoNodeException e) {
-
+                   LOG.error("Zookeeper error finding Brokers to build Partition data.", e);
+                }  catch (Exception e) {
+                    // Lots can go wrong when trying to talk to Kafka to get the partition data. Don't error
+                    // yet, see if another broker has what we want.
+                    LOG.info("Exception caught building list of brokers and partitions. May not be fatal: ", e);
                 }
             }
-        } catch(Exception e) {
+        } catch (Exception e) {
             throw new RuntimeException(e);
+        }
+        if (ret == null) {
+            LOG.error("Unable to locate brokers and partitions for the topic: " + _topic);
         }
         return ret;
     }
-    
+
     public void close() {
         _curator.close();
     }
-    
-    private static HostPort getBrokerHost(byte[] contents) {
-        try {
-            String[] hostString = new String(contents, "UTF-8").split(":");
-            String host = hostString[hostString.length - 2];
-            int port = Integer.parseInt(hostString[hostString.length - 1]);
-            return new HostPort(host, port);
-        } catch (UnsupportedEncodingException e) {
-            throw new RuntimeException(e);
-        }
-    }  
-    
-    private static int getNumPartitions(byte[] contents) {
-        try {
-            return Integer.parseInt(new String(contents, "UTF-8"));            
-        } catch (UnsupportedEncodingException e) {
-            throw new RuntimeException(e);
-        }
-    } 
+
+
 }

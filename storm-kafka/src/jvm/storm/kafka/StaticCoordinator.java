@@ -9,11 +9,11 @@ import storm.kafka.KafkaConfig.StaticHosts;
 
 public class StaticCoordinator implements PartitionCoordinator {
     Map<GlobalPartitionId, PartitionManager> _managers = new HashMap<GlobalPartitionId, PartitionManager>();
-    List<PartitionManager> _allManagers = new ArrayList();
+    List<PartitionManager> _allManagers = new ArrayList<PartitionManager>();
     
     public StaticCoordinator(DynamicPartitionConnections connections, Map stormConf, SpoutConfig config, ZkState state, int taskIndex, int totalTasks, String topologyInstanceId) {
         StaticHosts hosts = (StaticHosts) config.hosts;
-        List<GlobalPartitionId> allPartitionIds = new ArrayList();
+        List<GlobalPartitionId> allPartitionIds = new ArrayList<GlobalPartitionId>();
         for(HostPort h: hosts.hosts) {
             for(int i=0; i<hosts.partitionsPerHost; i++) {
                 allPartitionIds.add(new GlobalPartitionId(h, i));
@@ -25,7 +25,7 @@ public class StaticCoordinator implements PartitionCoordinator {
             
         }
         
-        _allManagers = new ArrayList(_managers.values());
+        _allManagers = new ArrayList<PartitionManager>(_managers.values());
     }
     
     @Override

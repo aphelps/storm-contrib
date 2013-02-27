@@ -1,6 +1,7 @@
 package storm.kafka.trident;
 
-import java.util.List;
+import storm.kafka.BrokerData;
+
 import java.util.Map;
 
 
@@ -8,6 +9,6 @@ public interface IBrokerReader {
     /**
      * Map of host to [port, numPartitions]
      */
-    Map<String, List> getCurrentBrokers();
+    Map<String, BrokerData> getCurrentBrokers();
     void close();
 }
