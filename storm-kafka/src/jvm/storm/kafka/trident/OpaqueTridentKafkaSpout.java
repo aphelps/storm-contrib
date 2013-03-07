@@ -70,7 +70,8 @@ public class OpaqueTridentKafkaSpout implements IOpaquePartitionedTridentSpout<M
 
         @Override
         public Map getPartitionsForBatch() {
-            return reader.getCurrentBrokers();
+            boolean forceReload = false;
+            return reader.getCurrentBrokers(forceReload);
         }
     }
     

@@ -14,6 +14,7 @@ import kafka.api.FetchRequestBuilder;
 import kafka.api.OffsetRequest;
 import kafka.api.PartitionOffsetRequestInfo;
 import kafka.common.TopicAndPartition;
+import kafka.javaapi.FetchResponse;
 import kafka.javaapi.OffsetResponse;
 import kafka.javaapi.TopicMetadataRequest;
 import kafka.javaapi.consumer.SimpleConsumer;
@@ -22,10 +23,7 @@ import kafka.message.Message;
 import kafka.message.MessageAndOffset;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import storm.kafka.BrokerData;
-import storm.kafka.DynamicPartitionConnections;
-import storm.kafka.GlobalPartitionId;
-import storm.kafka.HostPort;
+import storm.kafka.*;
 import storm.kafka.KafkaConfig.StaticHosts;
 import storm.kafka.KafkaConfig.ZkHosts;
 import storm.trident.operation.TridentCollector;
@@ -44,8 +42,6 @@ public class KafkaUtils {
     public static final String META_BROKER_HOST = "host";
     public static final String META_BROKER_PORT = "port";
     public static final String META_TOPIC = "topic";
-
-    public static final long NOT_MASTER_BROKER = -1000;
 
 
     public static final Logger LOG = LoggerFactory.getLogger(KafkaUtils.class);
@@ -78,17 +74,19 @@ public class KafkaUtils {
                 .clientId(clientName)
                 .addFetch(topic, partition, offset, fetchSize)
                 .build();
-        return consumer.fetch(req).messageSet(topic, partition);
-
+        FetchResponse response = consumer.fetch(req);
+        if (response.hasError()) {
+            throw new KafkaCommunicationsException(response.errorCode(topic, partition));
+        }
+        return response.messageSet(topic, partition);
     }
 
     public static Map emitPartitionBatchNew(TridentKafkaConfig config, SimpleConsumer consumer, GlobalPartitionId partition,
                                             TridentCollector collector, Map lastMeta, String topologyInstanceId, String topologyName,
                                             ReducedMetric meanMetric, CombinedMetric maxMetric) {
-        long newStartOffset = 0;
+        long newStartOffset;
         long newStopOffset = 0;
-        long lastStartOffset = 0;
-        long lastStopOffset = 0;
+
         if (lastMeta != null) {
             String lastInstanceId = null;
             Map lastTopoMeta = (Map) lastMeta.get(META_TOPOLOGY);
@@ -96,16 +94,14 @@ public class KafkaUtils {
                 lastInstanceId = (String) lastTopoMeta.get(KafkaUtils.META_TOPOLOGY_ID);
             }
             if (config.forceFromStart && !topologyInstanceId.equals(lastInstanceId)) {
+                //  the Instance Id check is to make sure that we aren't starting from scratch if we've already
+                // done that for this topology.
                 newStartOffset = getLastOffset(consumer, config.topic, partition.partition, config.startOffsetTime,
                         config.clientName);
-                lastStartOffset = lastStopOffset = newStartOffset;
             } else {
-                lastStartOffset = (Long) lastMeta.get(KafkaUtils.META_START_OFFSET);
-                lastStopOffset = (Long) lastMeta.get(META_END_OFFSET);
-                // Since the last offset is the last one read, we need to start from the next offset. Note that this
-                // gets ugly if we don't read anything since the +1 offset will be valid at some point in the future
+                // Since the last offset is the last one read, we need to start from the next offset.
                 //
-                newStartOffset = lastStopOffset + 1;
+                newStartOffset = (Long) lastMeta.get(META_END_OFFSET) + 1;
             }
 
         } else {
@@ -113,42 +109,39 @@ public class KafkaUtils {
             long startTime = kafka.api.OffsetRequest.LatestTime();
             if (config.forceFromStart) startTime = config.startOffsetTime;
             newStartOffset = getLastOffset(consumer, config.topic, partition.partition, startTime, config.clientName);
-            lastStartOffset = lastStopOffset = newStartOffset;
         }
 
         long numRead = 0;
-        if (newStartOffset != NOT_MASTER_BROKER) {
-            // no idea where to start the read since the Master isn't who we thought it was
-            //
-            ByteBufferMessageSet msgs;
-            try {
-                long start = System.nanoTime();
-                msgs = fill(consumer, config.clientName, config.topic, partition.partition, newStartOffset,
-                        config.fetchSizeBytes);
-                long end = System.nanoTime();
-                long millis = (end - start) / 1000000;
-                meanMetric.update(millis);
-                maxMetric.update(millis);
-            } catch (Exception e) {
-                if (e instanceof ConnectException) {
-                    throw new FailedFetchException(e);
-                } else {
-                    throw new RuntimeException(e);
-                }
-            }
 
-            for (MessageAndOffset msg : msgs) {
-                emit(config, collector, msg.message());
-                newStopOffset = msg.offset();
-                numRead++;
+        ByteBufferMessageSet msgs;
+        try {
+            long start = System.nanoTime();
+            msgs = fill(consumer, config.clientName, config.topic, partition.partition, newStartOffset,
+                    config.fetchSizeBytes);
+            long end = System.nanoTime();
+            long millis = (end - start) / 1000000;
+            meanMetric.update(millis);
+            maxMetric.update(millis);
+        } catch (KafkaCommunicationsException ke) {
+            throw ke;
+        } catch (Exception e) {
+            if (e instanceof ConnectException) {
+                throw new FailedFetchException(e);
+            } else {
+                throw new RuntimeException(e);
             }
+        }
+
+        for (MessageAndOffset msg : msgs) {
+            emit(config, collector, msg.message());
+            newStopOffset = msg.offset();
+            numRead++;
         }
 
         if (numRead == 0) {
             // nothing was found, so return the offsets to where they started
             //
-            newStartOffset = lastStartOffset;
-            newStopOffset = lastStopOffset;
+           return lastMeta;
         }
 
         Map newMeta = new HashMap();
@@ -180,34 +173,32 @@ public class KafkaUtils {
         kafka.javaapi.OffsetRequest request = new kafka.javaapi.OffsetRequest(
                 requestInfo, kafka.api.OffsetRequest.CurrentVersion(), clientName);
         OffsetResponse response = consumer.getOffsetsBefore(request);
-        long[] offsets = response.offsets(topic, partition);
-        if (offsets.length == 0) {
-            // This broker isn't correct for this client, so return an error code so the callers don't try to process
-            // the dynamic broker discovery will figure out where this partition's new Master resides
-            //
-            return KafkaUtils.NOT_MASTER_BROKER;
+
+        if (response.hasError()) {
+            throw new KafkaCommunicationsException(response.errorCode(topic, partition));
         }
+        long[] offsets = response.offsets(topic, partition);
         return offsets[0];
     }
 
     public static void debugMeta(String a_caller, Map meta) {
         // write out what is in the meta data
         //
-        LOG.info("Debugging meta data. Called from: " + a_caller);
-        LOG.info(META_TOPIC + " = " + meta.get(META_TOPIC));
-        LOG.info(META_PARTITION + " = " + meta.get(META_PARTITION));
-        LOG.info(META_START_OFFSET + " = " + meta.get(META_START_OFFSET));
-        LOG.info(META_END_OFFSET + " = " + meta.get(META_END_OFFSET));
+        String msg = "Debugging meta data. Called from: " + a_caller + "\n\t[ " + META_TOPIC + " = " + meta.get(META_TOPIC) + "\n"
+                + "\t" + META_PARTITION + " = " + meta.get(META_PARTITION) + "\n"
+                + "\t" + META_START_OFFSET + " = " + meta.get(META_START_OFFSET) + "\n"
+                + "\t" + META_END_OFFSET + " = " + meta.get(META_END_OFFSET) + "\n"
 
-        LOG.info(META_INSTANCE_ID + " = " + meta.get(META_INSTANCE_ID));
+                + "\t" + META_INSTANCE_ID + " = " + meta.get(META_INSTANCE_ID) + "\n";
 
         Map top = (Map) meta.get(META_TOPOLOGY);
-        LOG.info(META_TOPOLOGY_ID + " = " + top.get(META_TOPOLOGY_ID));
-        LOG.info(META_TOPOLOGY_NAME + " = " + top.get(META_TOPOLOGY_NAME));
+        msg += "\t" + META_TOPOLOGY_ID + " = " + top.get(META_TOPOLOGY_ID) + "\n"
+                + "\t" + META_TOPOLOGY_NAME + " = " + top.get(META_TOPOLOGY_NAME) + "\n";
 
         Map broker = (Map) meta.get(META_BROKER);
-        LOG.info(META_BROKER_HOST + " = " + broker.get(META_BROKER_HOST));
-        LOG.info(META_BROKER_PORT + " = " + broker.get(META_BROKER_PORT));
+        msg += "\t" + META_BROKER_HOST + " = " + broker.get(META_BROKER_HOST) + "\n"
+                + "\t" + META_BROKER_PORT + " = " + broker.get(META_BROKER_PORT) + "\n";
+        LOG.info(msg);
 
 
     }
@@ -280,11 +271,7 @@ public class KafkaUtils {
                             return null;
                         }
                         long latestTimeOffset = getLastOffset(consumer, _topic, partition.partition, OffsetRequest.LatestTime(), _clientName);
-                        if (latestTimeOffset == KafkaUtils.NOT_MASTER_BROKER) {
-                            LOG.warn("No data found in Kafka Partition " + partition.getId());
-                            return null;
-                        }
-                        long latestEmittedOffset = (Long) e.getValue();
+                        long latestEmittedOffset = e.getValue();
                         long spoutLag = latestTimeOffset - latestEmittedOffset;
                         ret.put(partition.getId() + "/" + "spoutLag", spoutLag);
                         ret.put(partition.getId() + "/" + "latestTime", latestTimeOffset);
@@ -300,6 +287,8 @@ public class KafkaUtils {
                 } else {
                     LOG.info("Metrics Tick: Not enough data to calculate spout lag.");
                 }
+            } catch (KafkaCommunicationsException e) {
+                LOG.warn("Communications Error communicating with Kafka. Kafka code: " + e.getReason());
             } catch (Throwable t) {
                 LOG.warn("Metrics Tick: Exception when computing kafkaOffset metric.", t);
             }

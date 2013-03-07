@@ -22,9 +22,9 @@ public class ZkBrokerReader implements IBrokerReader {
     }
     
     @Override
-    public Map<String, BrokerData> getCurrentBrokers() {
+    public Map<String, BrokerData> getCurrentBrokers(boolean force) {
         long currTime = System.currentTimeMillis();
-        if(currTime > lastRefreshTimeMs + refreshMillis) {
+        if(force || currTime > lastRefreshTimeMs + refreshMillis) {
             cachedBrokers = reader.getBrokerInfo();
             lastRefreshTimeMs = currTime;
         }

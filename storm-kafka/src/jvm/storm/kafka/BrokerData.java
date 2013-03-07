@@ -4,10 +4,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class BrokerData {
-    private long port;
+    private int port;
     private List<Integer> partitions;
 
-    public BrokerData(long a_port) {
+    public BrokerData(int a_port) {
         port = a_port;
         partitions = new ArrayList<Integer>();
     }
@@ -15,7 +15,7 @@ public class BrokerData {
         partitions.add(a_partition);
     }
 
-    public long getPort() {
+    public int getPort() {
         return port;
     }
     public List<Integer> getPartitions() {

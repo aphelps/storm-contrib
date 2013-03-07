@@ -9,6 +9,6 @@ public interface IBrokerReader {
     /**
      * Map of host to [port, numPartitions]
      */
-    Map<String, BrokerData> getCurrentBrokers();
+    Map<String, BrokerData> getCurrentBrokers(boolean force);
     void close();
 }
