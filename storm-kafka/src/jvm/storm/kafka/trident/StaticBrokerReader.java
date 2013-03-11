@@ -14,14 +14,14 @@ import storm.kafka.KafkaConfig.StaticHosts;
 public class StaticBrokerReader implements IBrokerReader {
 
     Map<String, BrokerData> brokers = new HashMap<String, BrokerData>();
-    
+
     public StaticBrokerReader(StaticHosts hosts) {
-        for(HostPort hp: hosts.hosts) {
+        for (HostPort hp : hosts.hosts) {
             BrokerData info = new BrokerData(hp.port);
             brokers.put(hp.host, info);
         }
     }
-    
+
     @Override
     public Map<String, BrokerData> getCurrentBrokers(boolean force) {
         return brokers;

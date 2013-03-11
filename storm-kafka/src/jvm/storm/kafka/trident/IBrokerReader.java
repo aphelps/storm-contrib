@@ -5,10 +5,11 @@ import storm.kafka.BrokerData;
 import java.util.Map;
 
 
-public interface IBrokerReader {    
+public interface IBrokerReader {
     /**
      * Map of host to [port, numPartitions]
      */
     Map<String, BrokerData> getCurrentBrokers(boolean force);
+
     void close();
 }

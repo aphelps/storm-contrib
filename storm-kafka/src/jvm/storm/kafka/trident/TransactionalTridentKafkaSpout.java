@@ -68,7 +68,7 @@ public class TransactionalTridentKafkaSpout implements IPartitionedTridentSpout<
         KafkaUtils.KafkaOffsetMetric _kafkaOffsetMetric;
         ReducedMetric _kafkaMeanFetchLatencyMetric;
         CombinedMetric _kafkaMaxFetchLatencyMetric;
-        int retryCount = 3;
+        int _retryCount = 3;            //TODO - move to a property
 
         IBrokerReader _brokerInterface = null;
         Map _configuration;
@@ -98,7 +98,7 @@ public class TransactionalTridentKafkaSpout implements IPartitionedTridentSpout<
             int retries = 0;
             Map ret = null;
             RuntimeException lastException = null;
-            while (retries < retryCount) {
+            while (retries < _retryCount) {
                 try {
 
                     setupBrokerReader(_configuration);
@@ -147,7 +147,7 @@ public class TransactionalTridentKafkaSpout implements IPartitionedTridentSpout<
             LOG.warn("Retry Batch Logic called.");
 
             KafkaUtils.debugMeta("Emit Replay", meta);
-            while (retries < retryCount) {
+            while (retries < _retryCount) {
                 try {
                     setupBrokerReader(_configuration);
                     String instanceId = (String) meta.get(KafkaUtils.META_INSTANCE_ID);
@@ -201,11 +201,11 @@ public class TransactionalTridentKafkaSpout implements IPartitionedTridentSpout<
                     lastException = re;
                     KafkaUtils.debugMeta("Emit Replay", meta);
                 }
-                if (lastException != null) {
-                    LOG.error("Emit Replay: Giving up on Kafka!", lastException);
-                    KafkaUtils.debugMeta("Emit Replay", meta);
-                    throw lastException;
-                }
+            }
+            if (lastException != null) {
+                LOG.error("Emit Replay: Giving up on Kafka!", lastException);
+                KafkaUtils.debugMeta("Emit Replay", meta);
+                throw lastException;
             }
         }
 

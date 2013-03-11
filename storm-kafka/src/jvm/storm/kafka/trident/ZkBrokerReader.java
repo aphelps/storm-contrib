@@ -13,18 +13,18 @@ public class ZkBrokerReader implements IBrokerReader {
     DynamicBrokersReader reader;
     long lastRefreshTimeMs;
     long refreshMillis;
-    
+
     public ZkBrokerReader(Map conf, String topic, ZkHosts hosts) {
         reader = new DynamicBrokersReader(conf, hosts.brokerZkStr, hosts.brokerZkPath, topic);
         cachedBrokers = reader.getBrokerInfo();
         lastRefreshTimeMs = System.currentTimeMillis();
         refreshMillis = hosts.refreshFreqSecs * 1000L;
     }
-    
+
     @Override
     public Map<String, BrokerData> getCurrentBrokers(boolean force) {
         long currTime = System.currentTimeMillis();
-        if(force || currTime > lastRefreshTimeMs + refreshMillis) {
+        if (force || currTime > lastRefreshTimeMs + refreshMillis) {
             cachedBrokers = reader.getBrokerInfo();
             lastRefreshTimeMs = currTime;
         }
@@ -34,5 +34,5 @@ public class ZkBrokerReader implements IBrokerReader {
     @Override
     public void close() {
         reader.close();
-    }    
+    }
 }
