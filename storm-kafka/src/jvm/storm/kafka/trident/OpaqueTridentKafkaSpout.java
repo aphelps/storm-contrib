@@ -5,6 +5,7 @@ import backtype.storm.metric.api.CombinedMetric;
 import backtype.storm.metric.api.MeanReducer;
 import backtype.storm.metric.api.ReducedMetric;
 import backtype.storm.task.TopologyContext;
+import backtype.storm.topology.FailedException;
 import backtype.storm.tuple.Fields;
 import com.google.common.collect.ImmutableMap;
 
@@ -155,7 +156,7 @@ public class OpaqueTridentKafkaSpout implements IOpaquePartitionedTridentSpout<M
             if (lastException != null) {
                 LOG.error("Emit Replay: Giving up on Kafka!", lastException);
                 KafkaUtils.debugMeta("Emit", lastMeta);
-                throw lastException;
+                throw new FailedException(lastException);
             }
             return ret;
         }

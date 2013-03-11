@@ -5,6 +5,7 @@ import backtype.storm.metric.api.CombinedMetric;
 import backtype.storm.metric.api.MeanReducer;
 import backtype.storm.metric.api.ReducedMetric;
 import backtype.storm.task.TopologyContext;
+import backtype.storm.topology.FailedException;
 import backtype.storm.tuple.Fields;
 
 import java.util.*;
@@ -135,7 +136,7 @@ public class TransactionalTridentKafkaSpout implements IPartitionedTridentSpout<
             if (lastException != null) {
                 LOG.error("Emit New: Giving up on Kafka!", lastException);
                 KafkaUtils.debugMeta("Emit New", lastMeta);
-                throw lastException;
+                throw new FailedException(lastException);
             }
             return ret;
         }
@@ -205,7 +206,7 @@ public class TransactionalTridentKafkaSpout implements IPartitionedTridentSpout<
             if (lastException != null) {
                 LOG.error("Emit Replay: Giving up on Kafka!", lastException);
                 KafkaUtils.debugMeta("Emit Replay", meta);
-                throw lastException;
+                throw new FailedException(lastException);
             }
         }
 
