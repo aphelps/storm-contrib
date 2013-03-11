@@ -35,7 +35,7 @@ public class KafkaUtils {
     public static final String META_TOPOLOGY_ID = "id";
     public static final String META_TOPOLOGY_NAME = "name";
     public static final String META_START_OFFSET = "offset";
-    public static final String META_END_OFFSET = "nextOffset";
+    public static final String META_NEXT_OFFSET_TO_FETCH = "nextOffset";
     public static final String META_INSTANCE_ID = "instanceId";
     public static final String META_PARTITION = "partition";
     public static final String META_BROKER = "broker";
@@ -84,6 +84,10 @@ public class KafkaUtils {
     public static Map emitPartitionBatchNew(TridentKafkaConfig config, SimpleConsumer consumer, GlobalPartitionId partition,
                                             TridentCollector collector, Map lastMeta, String topologyInstanceId, String topologyName,
                                             ReducedMetric meanMetric, CombinedMetric maxMetric) {
+
+        // Note about offsets here. The offset stored in META_NEXT_OFFSET_TO_FETCH is what the next call to this
+        // function should start at. So if we don't emit anything don't increment it.
+        //
         long newStartOffset;
         long newStopOffset = 0;
 
@@ -101,7 +105,7 @@ public class KafkaUtils {
             } else {
                 // Since the last offset is the last one read, we need to start from the next offset.
                 //
-                newStartOffset = (Long) lastMeta.get(META_END_OFFSET) + 1;
+                newStartOffset = (Long) lastMeta.get(META_NEXT_OFFSET_TO_FETCH);
             }
 
         } else {
@@ -131,22 +135,20 @@ public class KafkaUtils {
                 throw new RuntimeException(e);
             }
         }
-
+        newStopOffset = newStartOffset;
         for (MessageAndOffset msg : msgs) {
             emit(config, collector, msg.message());
             newStopOffset = msg.offset();
             numRead++;
         }
 
-        if (numRead == 0) {
-            // nothing was found, so return the offsets to where they started
-            //
-           return lastMeta;
+        if (numRead != 0) {
+            newStopOffset++;        // Kafka fetches are inclusive
         }
 
         Map newMeta = new HashMap();
         newMeta.put(KafkaUtils.META_START_OFFSET, newStartOffset);
-        newMeta.put(META_END_OFFSET, newStopOffset);
+        newMeta.put(META_NEXT_OFFSET_TO_FETCH, newStopOffset);
         newMeta.put(META_INSTANCE_ID, topologyInstanceId);
         newMeta.put(KafkaUtils.META_PARTITION, partition.partition);
         newMeta.put(META_BROKER, ImmutableMap.of(KafkaUtils.META_BROKER_HOST, partition.host.host, KafkaUtils.META_BROKER_PORT, partition.host.port));
@@ -187,7 +189,7 @@ public class KafkaUtils {
         String msg = "Debugging meta data. Called from: " + a_caller + "\n\t[ " + META_TOPIC + " = " + meta.get(META_TOPIC) + "\n"
                 + "\t" + META_PARTITION + " = " + meta.get(META_PARTITION) + "\n"
                 + "\t" + META_START_OFFSET + " = " + meta.get(META_START_OFFSET) + "\n"
-                + "\t" + META_END_OFFSET + " = " + meta.get(META_END_OFFSET) + "\n"
+                + "\t" + META_NEXT_OFFSET_TO_FETCH + " = " + meta.get(META_NEXT_OFFSET_TO_FETCH) + "\n"
 
                 + "\t" + META_INSTANCE_ID + " = " + meta.get(META_INSTANCE_ID) + "\n";
 

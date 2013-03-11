@@ -145,6 +145,7 @@ public class TransactionalTridentKafkaSpout implements IPartitionedTridentSpout<
             int retries = 0;
             RuntimeException lastException = null;
             LOG.warn("Retry Batch Logic called.");
+
             KafkaUtils.debugMeta("Emit Replay", meta);
             while (retries < retryCount) {
                 try {
@@ -154,7 +155,7 @@ public class TransactionalTridentKafkaSpout implements IPartitionedTridentSpout<
 
                         SimpleConsumer consumer = _connections.register(partition);
                         long offset = (Long) meta.get(KafkaUtils.META_START_OFFSET);
-                        long endingOffset = (Long) meta.get(KafkaUtils.META_END_OFFSET);
+                        long endingOffset = (Long) meta.get(KafkaUtils.META_NEXT_OFFSET_TO_FETCH);
                         long start = System.nanoTime();
                         FetchRequest req = new FetchRequestBuilder()
                                 .clientId(_config.clientName)
@@ -170,9 +171,13 @@ public class TransactionalTridentKafkaSpout implements IPartitionedTridentSpout<
                         _kafkaMeanFetchLatencyMetric.update(millis);
                         _kafkaMaxFetchLatencyMetric.update(millis);
 
+                        // Key part of the logic here: 'META_NEXT_OFFSET_TO_FETCH' points to the NEXT offset we want to
+                        // send from, NOT the last offset in this batch. So if we see that offset in the
+                        // data, ignore it and stop.
+                        //
                         for (MessageAndOffset msg : msgs) {
                             offset = msg.offset();
-                            if (offset > endingOffset) break;
+                            if (offset >= endingOffset) break;
                             KafkaUtils.emit(_config, collector, msg.message());
                         }
                         break;

@@ -94,6 +94,8 @@ public class OpaqueTridentKafkaSpout implements IOpaquePartitionedTridentSpout<M
         @Override
         public Map emitPartitionBatch(TransactionAttempt attempt, TridentCollector collector, GlobalPartitionId partition, Map lastMeta) {
             try {
+                // TODO - add retry logic like the Transactional Spout does
+                //
                 SimpleConsumer consumer = _connections.register(partition);
                 Map ret = KafkaUtils.emitPartitionBatchNew(_config, consumer, partition, collector, lastMeta, _topologyInstanceId, _topologyName, _kafkaMeanFetchLatencyMetric, _kafkaMaxFetchLatencyMetric);
                 _kafkaOffsetMetric.setLatestEmittedOffset(partition, (Long)ret.get(KafkaUtils.META_START_OFFSET));
@@ -104,8 +106,8 @@ public class OpaqueTridentKafkaSpout implements IOpaquePartitionedTridentSpout<M
                     return null;
                 } else {
                     Map ret = new HashMap();
-                    ret.put(KafkaUtils.META_START_OFFSET, lastMeta.get(KafkaUtils.META_END_OFFSET));
-                    ret.put(KafkaUtils.META_END_OFFSET, lastMeta.get(KafkaUtils.META_END_OFFSET));
+                    ret.put(KafkaUtils.META_START_OFFSET, lastMeta.get(KafkaUtils.META_NEXT_OFFSET_TO_FETCH));
+                    ret.put(KafkaUtils.META_NEXT_OFFSET_TO_FETCH, lastMeta.get(KafkaUtils.META_NEXT_OFFSET_TO_FETCH));
                     ret.put(KafkaUtils.META_PARTITION, partition.partition);
                     ret.put(KafkaUtils.META_BROKER, ImmutableMap.of(KafkaUtils.META_BROKER_HOST, partition.host.host, KafkaUtils.META_BROKER_PORT, partition.host.port));
                     ret.put(KafkaUtils.META_TOPIC, _config.topic);
