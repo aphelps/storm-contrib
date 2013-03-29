@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<metadata>
+  <groupId>kafka</groupId>
+  <artifactId>kafka</artifactId>
+  <version>0.8.0-20130327</version>
+  <versioning>
+    <versions>
+      <version>0.8.0-20130327</version>
+    </versions>
+    <lastUpdated>20130329180723</lastUpdated>
+  </versioning>
+</metadata>
